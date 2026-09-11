@@ -1,0 +1,81 @@
+name: CI Pipeline
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ ! -f package.json ]; then
+            echo "Skip: no package.json; dependency installation is not applicable."
+          else
+            npm install
+          fi
+
+      - name: Lint
+        shell: bash
+        run: |
+          if [ ! -f package.json ]; then
+            echo "Skip: no package.json; linting is not applicable."
+          elif [ -f package.json ] && node -e "const p=require('./package.json'); if (p.scripts && p.scripts.lint) process.exit(0); process.exit(1)"; then
+            npm run lint
+          else
+            echo "Skip: no lint script; linting is not applicable."
+          fi
+
+      - name: Build or type check
+        shell: bash
+        run: |
+          if [ ! -f package.json ]; then
+            echo "Skip: no package.json; build and type checking are not applicable."
+          elif [ -f package.json ] && node -e "const p=require('./package.json'); if (p.scripts && (p.scripts.build || p.scripts['type-check'])) process.exit(0); process.exit(1)"; then
+            if node -e "const p=require('./package.json'); process.exit(p.scripts['build'] ? 0 : 1)"; then
+              npm run build
+            else
+              npm run type-check
+            fi
+          else
+            echo "Skip: no build or type-check script; build and type checking are not applicable."
+          fi
+
+      - name: Test
+        shell: bash
+        run: |
+          if [ ! -f package.json ]; then
+            echo "Skip: no package.json; tests are not applicable."
+          elif [ -f package.json ] && node -e "const p=require('./package.json'); if (p.scripts && p.scripts.test) process.exit(0); process.exit(1)"; then
+            npm test
+          else
+            echo "Skip: no test script; tests are not applicable."
+          fi
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: echo "Node ${{ matrix.node-version }}: completed; no secrets or deployments used." >> "$GITHUB_STEP_SUMMARY"
